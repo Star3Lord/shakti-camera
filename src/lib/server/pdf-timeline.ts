@@ -29,6 +29,12 @@ export interface PdfBuildOptions {
 	snapshots: PdfSnapshot[];
 	/** Override the "Generated on" timestamp; defaults to now. */
 	generatedAt?: Date;
+	/**
+	 * IANA timezone (e.g. `Asia/Kolkata`) used to render every date / time in
+	 * the PDF, so the output matches the wall-clock the user sees in the
+	 * timeline UI. Falls back to `UTC` if omitted or invalid.
+	 */
+	timeZone?: string;
 }
 
 const PLACEHOLDER = '—';
@@ -82,73 +88,110 @@ function toDate(s: string): Date {
 	return isNaN(d.getTime()) ? new Date() : d;
 }
 
-/** "Sun, May 17, 2026 · 4:30 PM" (UTC). */
-function formatGeneratedAt(d: Date): string {
+/** Validate `timeZone` against the runtime's ICU data; falls back to UTC. */
+function resolveTimeZone(timeZone: string | undefined): string {
+	if (!timeZone) return 'UTC';
+	try {
+		new Intl.DateTimeFormat('en-US', { timeZone });
+		return timeZone;
+	} catch {
+		return 'UTC';
+	}
+}
+
+/**
+ * Short timezone label (e.g. "EDT", "GMT+5:30"). V8 currently emits a numeric
+ * offset for most non-North-American zones, which is still more useful than a
+ * bare "UTC" when the user is elsewhere.
+ */
+function tzAbbr(d: Date, timeZone: string): string {
+	try {
+		const parts = new Intl.DateTimeFormat('en-US', {
+			timeZone,
+			timeZoneName: 'short',
+		}).formatToParts(d);
+		return parts.find((p) => p.type === 'timeZoneName')?.value ?? timeZone;
+	} catch {
+		return timeZone;
+	}
+}
+
+/** "Sun, May 17, 2026 · 4:30 PM IST". */
+function formatGeneratedAt(d: Date, timeZone: string): string {
 	const date = d.toLocaleDateString('en-US', {
 		weekday: 'short',
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric',
-		timeZone: 'UTC',
+		timeZone,
 	});
 	const time = d.toLocaleTimeString('en-US', {
 		hour: 'numeric',
 		minute: '2-digit',
 		hour12: true,
-		timeZone: 'UTC',
+		timeZone,
 	});
-	return `${date} · ${time} UTC`;
+	return `${date} · ${time} ${tzAbbr(d, timeZone)}`;
 }
 
-/** "May 2, 2026 · 11:01 PM" (UTC). */
-function formatLongDateTime(s: string): string {
+/** "May 2, 2026 · 11:01 PM". */
+function formatLongDateTime(s: string, timeZone: string): string {
 	const d = toDate(s);
 	const date = d.toLocaleDateString('en-US', {
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric',
-		timeZone: 'UTC',
+		timeZone,
 	});
 	const time = d.toLocaleTimeString('en-US', {
 		hour: 'numeric',
 		minute: '2-digit',
 		hour12: true,
-		timeZone: 'UTC',
+		timeZone,
 	});
 	return `${date} · ${time}`;
 }
 
-/** "Saturday, May 2, 2026" (UTC). */
-function formatSectionDate(iso: string): string {
+/** "Saturday, May 2, 2026". */
+function formatSectionDate(iso: string, timeZone: string): string {
 	return toDate(iso).toLocaleDateString('en-US', {
 		weekday: 'long',
 		year: 'numeric',
 		month: 'long',
 		day: 'numeric',
-		timeZone: 'UTC',
+		timeZone,
 	});
 }
 
-/** "5:30 PM" (UTC). */
-function formatShortTime(iso: string): string {
+/** "5:30 PM". */
+function formatShortTime(iso: string, timeZone: string): string {
 	return toDate(iso).toLocaleTimeString('en-US', {
 		hour: 'numeric',
 		minute: '2-digit',
 		hour12: true,
-		timeZone: 'UTC',
+		timeZone,
 	});
 }
 
-/** Key snapshots by UTC calendar day so we can render a section header per day. */
-function dayKey(iso: string): string {
-	return toDate(iso).toISOString().slice(0, 10);
+/** Key snapshots by calendar day in `timeZone` so the section header per day
+ * matches the per-image times beneath it. `en-CA` reliably emits ISO `YYYY-MM-DD`. */
+function dayKey(iso: string, timeZone: string): string {
+	return new Intl.DateTimeFormat('en-CA', {
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		timeZone,
+	}).format(toDate(iso));
 }
 
-/** Bucket snapshots in stable order, by UTC day. */
-function groupByDay(snapshots: PdfSnapshot[]): Array<{ key: string; iso: string; items: PdfSnapshot[] }> {
+/** Bucket snapshots in stable order, by day in `timeZone`. */
+function groupByDay(
+	snapshots: PdfSnapshot[],
+	timeZone: string,
+): Array<{ key: string; iso: string; items: PdfSnapshot[] }> {
 	const map = new Map<string, { key: string; iso: string; items: PdfSnapshot[] }>();
 	for (const s of snapshots) {
-		const key = dayKey(s.timeIso);
+		const key = dayKey(s.timeIso, timeZone);
 		const group = map.get(key);
 		if (group) {
 			group.items.push(s);
@@ -163,7 +206,12 @@ function groupByDay(snapshots: PdfSnapshot[]): Array<{ key: string; iso: string;
  * Draw the cover-style header on the current page.
  * Returns the Y coordinate where body content can begin.
  */
-function drawCoverHeader(doc: PDFKit.PDFDocument, meta: PdfTripMeta, generatedAt: Date): number {
+function drawCoverHeader(
+	doc: PDFKit.PDFDocument,
+	meta: PdfTripMeta,
+	generatedAt: Date,
+	timeZone: string,
+): number {
 	const left = MARGIN;
 	const right = PAGE_W - MARGIN;
 	let y = MARGIN;
@@ -183,7 +231,7 @@ function drawCoverHeader(doc: PDFKit.PDFDocument, meta: PdfTripMeta, generatedAt
 	doc.font('Helvetica')
 		.fontSize(9)
 		.fillColor(COLORS.muted)
-		.text(`Generated on ${formatGeneratedAt(generatedAt)}`, left, y, {
+		.text(`Generated on ${formatGeneratedAt(generatedAt, timeZone)}`, left, y, {
 			width: USABLE_W,
 			align: 'left',
 		});
@@ -206,8 +254,8 @@ function drawCoverHeader(doc: PDFKit.PDFDocument, meta: PdfTripMeta, generatedAt
 			['To', fmt(meta.to)],
 		],
 		[
-			['Start Date', formatLongDateTime(meta.startDate)],
-			['End Date', formatLongDateTime(meta.endDate)],
+			['Start Date', formatLongDateTime(meta.startDate, timeZone)],
+			['End Date', formatLongDateTime(meta.endDate, timeZone)],
 		],
 		[
 			['Driver', fmt(meta.driverName)],
@@ -304,10 +352,16 @@ function drawContinuationHeader(doc: PDFKit.PDFDocument, meta: PdfTripMeta): num
 }
 
 /** Section header inside the body grid that marks a new capture date. */
-function drawDateSectionHeader(doc: PDFKit.PDFDocument, iso: string, count: number, y: number): number {
+function drawDateSectionHeader(
+	doc: PDFKit.PDFDocument,
+	iso: string,
+	count: number,
+	y: number,
+	timeZone: string,
+): number {
 	const left = MARGIN;
 	const right = PAGE_W - MARGIN;
-	const label = formatSectionDate(iso);
+	const label = formatSectionDate(iso, timeZone);
 	const countLabel = `${count} snapshot${count === 1 ? '' : 's'}`;
 
 	doc.font('Helvetica-Bold')
@@ -328,7 +382,13 @@ function drawDateSectionHeader(doc: PDFKit.PDFDocument, iso: string, count: numb
 	return dividerY + 10;
 }
 
-function drawImageCell(doc: PDFKit.PDFDocument, snap: PdfSnapshot, x: number, y: number): void {
+function drawImageCell(
+	doc: PDFKit.PDFDocument,
+	snap: PdfSnapshot,
+	x: number,
+	y: number,
+	timeZone: string,
+): void {
 	const radius = 6;
 
 	// Image area with rounded clip
@@ -373,7 +433,7 @@ function drawImageCell(doc: PDFKit.PDFDocument, snap: PdfSnapshot, x: number, y:
 	doc.font('Helvetica')
 		.fontSize(9)
 		.fillColor(COLORS.timeLabel)
-		.text(formatShortTime(snap.timeIso), x, y + CELL_IMG_H + LABEL_GAP, {
+		.text(formatShortTime(snap.timeIso, timeZone), x, y + CELL_IMG_H + LABEL_GAP, {
 			width: CELL_W,
 			align: 'center',
 		});
@@ -426,10 +486,11 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNum: number, totalPages: number
 function buildPdf(doc: PDFKit.PDFDocument, opts: PdfBuildOptions): void {
 	const { meta, snapshots } = opts;
 	const generatedAt = opts.generatedAt ?? new Date();
+	const timeZone = resolveTimeZone(opts.timeZone);
 
-	let y = drawCoverHeader(doc, meta, generatedAt);
+	let y = drawCoverHeader(doc, meta, generatedAt, timeZone);
 
-	const groups = groupByDay(snapshots);
+	const groups = groupByDay(snapshots, timeZone);
 
 	if (snapshots.length === 0) {
 		doc.font('Helvetica')
@@ -457,7 +518,7 @@ function buildPdf(doc: PDFKit.PDFDocument, opts: PdfBuildOptions): void {
 
 	for (const group of groups) {
 		ensureSpace(sectionHeaderH + ROW_H);
-		y = drawDateSectionHeader(doc, group.iso, group.items.length, y);
+		y = drawDateSectionHeader(doc, group.iso, group.items.length, y, timeZone);
 
 		for (let i = 0; i < group.items.length; i += COLS) {
 			ensureSpace(ROW_H + (i + COLS < group.items.length ? CELL_GAP_Y : 0));
@@ -465,7 +526,7 @@ function buildPdf(doc: PDFKit.PDFDocument, opts: PdfBuildOptions): void {
 			const rowItems = group.items.slice(i, i + COLS);
 			for (let c = 0; c < rowItems.length; c++) {
 				const x = MARGIN + c * (CELL_W + CELL_GAP_X);
-				drawImageCell(doc, rowItems[c], x, y);
+				drawImageCell(doc, rowItems[c], x, y, timeZone);
 			}
 			y += ROW_H + CELL_GAP_Y;
 		}

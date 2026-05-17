@@ -57,6 +57,14 @@
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
 	}
 
+	function resolveTimeZone(): string {
+		try {
+			return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+		} catch {
+			return '';
+		}
+	}
+
 	async function handleSubmit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		if (isSubmitting) return;
@@ -80,6 +88,7 @@
 					driver_name: driverName.trim(),
 					driver_contact: driverContact.trim(),
 					consignor: consignor.trim(),
+					time_zone: resolveTimeZone(),
 				}),
 			});
 

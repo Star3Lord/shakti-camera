@@ -18,6 +18,8 @@ const bodySchema = v.object({
 	driver_name: v.optional(v.string(), ''),
 	driver_contact: v.optional(v.string(), ''),
 	consignor: v.optional(v.string(), ''),
+	/** Browser-resolved IANA timezone; the PDF renders timestamps in this zone. */
+	time_zone: v.optional(v.string(), ''),
 });
 
 /** Limit parallelism of upstream image fetches so we don't hammer BSJ. */
@@ -114,6 +116,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			multiType: body.multi_type,
 		},
 		snapshots,
+		timeZone: body.time_zone || undefined,
 	});
 
 	const dateStr = body.start_time.slice(0, 10);
