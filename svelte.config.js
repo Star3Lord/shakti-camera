@@ -1,5 +1,6 @@
 // import adapter from '@sveltejs/adapter-auto';
-import adapter from '@sveltejs/adapter-cloudflare';
+// import adapter from '@sveltejs/adapter-cloudflare';
+import adapter from '@sveltejs/adapter-vercel';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -12,7 +13,9 @@ const config = {
       filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
   },
   kit: {
-    adapter: adapter(),
+    adapter: adapter({
+      runtime: 'nodejs22.x',
+    }),
     experimental: {
       remoteFunctions: true,
     },
