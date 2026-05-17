@@ -487,9 +487,9 @@ export async function generateTimelinePdf(opts: PdfBuildOptions): Promise<Buffer
 			margin: MARGIN,
 			bufferPages: true,
 			info: {
-				Title: 'Snapshot Timeline Report',
-				Creator: 'Monitoring',
-				Producer: 'Monitoring',
+				Title: 'Timeline Report',
+				Creator: '-',
+				Producer: '-',
 			},
 		});
 

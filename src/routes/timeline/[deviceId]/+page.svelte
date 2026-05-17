@@ -34,7 +34,7 @@
 </script>
 
 <svelte:head>
-	<title>Timeline · Monitoring</title>
+	<title>Timeline</title>
 </svelte:head>
 
 <div class="bg-background text-foreground min-h-screen">

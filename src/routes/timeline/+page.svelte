@@ -15,7 +15,7 @@
 </script>
 
 <svelte:head>
-	<title>Devices · Monitoring</title>
+	<title>Devices</title>
 </svelte:head>
 
 <div class="bg-background text-foreground min-h-screen">
