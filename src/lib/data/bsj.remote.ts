@@ -5,10 +5,11 @@ import {
 	parseBSJTime,
 	imageUrl,
 	yesterdayRange,
+	type BSJAccount,
 	type BSJDevice,
 	type EnrichedSnapshot,
 } from '$lib/bsj';
-import { fetchSnapshots, findDevice, listDevices } from '$lib/server/bsj';
+import { fetchSnapshots, findDevice, listAccounts, listDevices } from '$lib/server/bsj';
 
 export interface TimelineResult {
 	snapshots: EnrichedSnapshot[];
@@ -54,8 +55,42 @@ async function reverseGeocode(
 	return cache;
 }
 
-export const list_devices = query(async (): Promise<BSJDevice[]> => {
-	return listDevices();
+export const list_accounts = query(async (): Promise<BSJAccount[]> => {
+	return listAccounts();
+});
+
+/**
+ * Returns the device list for a single account. When `user_id` is omitted
+ * the logged-in user's own devices are returned — preserves the original
+ * single-user behaviour. The device picker prefers `list_all_devices` for
+ * a single round-trip across the whole tree; `list_devices` is kept so
+ * targeted refreshes ("just reload BAJRANG") stay cheap.
+ */
+export const list_devices = query(
+	v.optional(
+		v.object({
+			user_id: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+		}),
+		{},
+	),
+	async (args): Promise<BSJDevice[]> => {
+		const userId = args?.user_id;
+		return listDevices(userId ? [userId] : undefined);
+	},
+);
+
+/**
+ * Returns every device across every account the logged-in user can access
+ * (their own account + the full sub-tree from `listAccounts()`). Performed
+ * as a single upstream call to `/webapi/monitor/loadSimpleByUsers` with
+ * every account id, since BSJ groups its response by owning `userId` — we
+ * keep that field on each `BSJDevice` so the picker can re-bucket devices
+ * by account without making N additional requests.
+ */
+export const list_all_devices = query(async (): Promise<BSJDevice[]> => {
+	const accounts = await listAccounts();
+	const ids = accounts.map((a) => a.id);
+	return listDevices(ids);
 });
 
 export const get_timeline = query(

@@ -5,6 +5,25 @@ export interface BSJDevice {
 	groupId: number;
 	groupName?: string;
 	terminalType?: string;
+	/**
+	 * Owner account user id. Populated when devices are loaded across
+	 * sub-accounts so the picker can group / breadcrumb by account.
+	 */
+	userId?: number;
+}
+
+/**
+ * One node in the user/account hierarchy returned by BSJ's
+ * `/webapi/user/getUserTree`. We flatten the nested tree on the server and
+ * pre-compute `ancestors` (the chain of parent userNames from root → parent)
+ * so the picker can render a "VSS / VSS 1 / VSS MONITORING" breadcrumb
+ * without recursing client-side.
+ */
+export interface BSJAccount {
+	id: number;
+	userName: string;
+	parentId: number | null;
+	ancestors: string[];
 }
 
 export interface BSJSnapshot {

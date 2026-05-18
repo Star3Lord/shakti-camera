@@ -1,5 +1,8 @@
+export { default as AccountSection } from './account-section.svelte';
 export { default as DeviceList } from './device-list.svelte';
 export { default as DeviceListSkeleton } from './device-list-skeleton.svelte';
+export { default as DevicePicker } from './device-picker.svelte';
+export { default as DevicePickerSections } from './device-picker-sections.svelte';
 export { default as DeviceRow } from './device-row.svelte';
 export { default as PrintDialog } from './print-dialog.svelte';
 export { default as SnapshotCard } from './snapshot-card.svelte';
