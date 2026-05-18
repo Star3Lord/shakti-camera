@@ -1,15 +1,14 @@
 <script lang="ts">
 	import {
-		ArrowSquareOut,
 		Clock,
+		DotsThree,
 		DownloadSimple,
 		Image as ImageIcon,
 		MapPin,
 		VideoCamera,
 	} from 'phosphor-svelte';
 	import { Badge } from '$lib/components/ui/badge';
-	import { Button } from '$lib/components/ui/button';
-	import * as Card from '$lib/components/ui/card';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import type { EnrichedSnapshot } from '$lib/bsj';
 
@@ -19,17 +18,26 @@
 		tzLabel: string;
 	}
 
-	let { snap, mounted, tzLabel }: Props = $props();
+	let { snap, mounted }: Props = $props();
+
+	function formatTime12h(d: Date, useUtc: boolean): string {
+		const h24 = useUtc ? d.getUTCHours() : d.getHours();
+		const m = useUtc ? d.getUTCMinutes() : d.getMinutes();
+		const s = useUtc ? d.getUTCSeconds() : d.getSeconds();
+		const ampm = h24 >= 12 ? 'PM' : 'AM';
+		const h12 = h24 % 12 || 12;
+		return `${h12}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} ${ampm}`;
+	}
 
 	function formatTime(iso: string): string {
-		if (!mounted) return new Date(iso).toISOString().slice(11, 16) + ' UTC';
-		return new Date(iso)
-			.toLocaleTimeString(undefined, {
-				hour: 'numeric',
-				minute: '2-digit',
-				hour12: true,
-			})
-			.toLowerCase();
+		const d = new Date(iso);
+		if (!mounted) {
+			const hh = String(d.getUTCHours()).padStart(2, '0');
+			const mm = String(d.getUTCMinutes()).padStart(2, '0');
+			const ss = String(d.getUTCSeconds()).padStart(2, '0');
+			return `${hh}:${mm}:${ss} UTC`;
+		}
+		return formatTime12h(d, false);
 	}
 
 	function ordinalSuffix(day: number): string {
@@ -54,12 +62,7 @@
 		const d = new Date(iso);
 		const locale = useUtc ? 'en-US' : undefined;
 		const tzOpt: Intl.DateTimeFormatOptions = useUtc ? { timeZone: 'UTC' } : {};
-		const time = d.toLocaleTimeString(locale, {
-			hour: 'numeric',
-			minute: '2-digit',
-			hour12: true,
-			...tzOpt,
-		});
+		const time = formatTime12h(d, useUtc);
 		const dayStr = new Intl.DateTimeFormat('en-US', {
 			day: 'numeric',
 			...tzOpt,
@@ -93,6 +96,22 @@
 		return `${Math.abs(lat).toFixed(4)}°${ns}, ${Math.abs(lon).toFixed(4)}°${ew}`;
 	}
 
+	function downloadImage(): void {
+		const a = document.createElement('a');
+		a.href = snap.imageUrl;
+		// Empty value preserves the URL's filename, matching the previous
+		// `<a href={snap.imageUrl} download>` behaviour.
+		a.download = '';
+		a.rel = 'noopener';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+	}
+
+	function openInMaps(): void {
+		window.open(snap.mapsUrl, '_blank', 'noopener,noreferrer');
+	}
+
 	const utcFormatted = $derived(
 		formatFullDateTime(snap.operatorTime, mounted, { timeZone: 'UTC' }),
 	);
@@ -101,33 +120,64 @@
 	const showLocalRow = $derived(mounted && localTzAbbr !== 'UTC');
 </script>
 
-<Card.Root
-	class="ring-border hover:ring-foreground/20 hover:shadow-md group/snapshot transition-all duration-200 hover:-translate-y-0.5"
->
-	<div class="bg-muted relative aspect-video w-full overflow-hidden">
+<article class="group/snapshot">
+	<div
+		class="bg-muted ring-border/40 group-hover/snapshot:ring-foreground/30 group-hover/snapshot:shadow-md relative aspect-video w-full overflow-hidden rounded-xl ring-1 transition-all duration-200"
+	>
 		<img
 			src={snap.imageUrl}
 			alt="Channel {snap.channel} snapshot at {snap.operatorTime}"
-			class="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover/snapshot:scale-[1.03]"
+			class="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover/snapshot:scale-[1.02]"
 			loading="lazy"
 		/>
-		<div class="absolute inset-x-2 top-2 flex items-center justify-between gap-2">
-			<Badge class="bg-background/85 text-foreground border-border/60 ring-foreground/5 backdrop-blur-sm">
-				Ch {snap.channel}
+
+		<Badge
+			class="bg-background/85 text-foreground border-border/60 ring-foreground/5 absolute left-2 top-2 backdrop-blur-sm"
+		>
+			Ch {snap.channel}
+		</Badge>
+
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger
+				class="bg-background/85 text-foreground hover:bg-background border-border/60 ring-foreground/5 focus-visible:ring-ring absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-full border ring-1 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2"
+				aria-label="Snapshot actions"
+			>
+				<DotsThree class="size-4" weight="bold" />
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Content align="end" sideOffset={6} class="min-w-44">
+				<DropdownMenu.Item onSelect={downloadImage}>
+					<DownloadSimple weight="duotone" />
+					Download image
+				</DropdownMenu.Item>
+				<DropdownMenu.Item onSelect={openInMaps}>
+					<MapPin weight="duotone" />
+					Open in Maps
+				</DropdownMenu.Item>
+			</DropdownMenu.Content>
+		</DropdownMenu.Root>
+
+		{#if snap.terminalType}
+			<Badge
+				class="bg-background/85 text-foreground border-border/60 ring-foreground/5 absolute bottom-2 left-2 font-mono backdrop-blur-sm"
+			>
+				{snap.terminalType}
 			</Badge>
-			<Badge class="bg-background/85 text-foreground border-border/60 ring-foreground/5 gap-1 backdrop-blur-sm">
-				{#if snap.multiType === 0}
-					<ImageIcon />
-					Picture
-				{:else}
-					<VideoCamera />
-					Video
-				{/if}
-			</Badge>
-		</div>
+		{/if}
+
+		<Badge
+			class="bg-background/85 text-foreground border-border/60 ring-foreground/5 absolute bottom-2 right-2 gap-1 backdrop-blur-sm"
+		>
+			{#if snap.multiType === 0}
+				<ImageIcon />
+				Picture
+			{:else}
+				<VideoCamera />
+				Video
+			{/if}
+		</Badge>
 	</div>
 
-	<Card.Content class="space-y-2.5 pt-3.5">
+	<div class="mt-3 space-y-2">
 		<div class="flex items-center gap-2">
 			<Clock class="text-muted-foreground size-4 shrink-0" weight="duotone" />
 			<Tooltip.Root>
@@ -157,9 +207,6 @@
 					</div>
 				</Tooltip.Content>
 			</Tooltip.Root>
-			<Badge variant="outline" class="border-border/60 ml-auto font-mono">
-				{tzLabel}
-			</Badge>
 		</div>
 
 		<div class="flex items-start gap-2">
@@ -178,36 +225,5 @@
 				</Tooltip.Content>
 			</Tooltip.Root>
 		</div>
-	</Card.Content>
-
-	<Card.Footer class="border-t pt-3">
-		{#if snap.terminalType}
-			<Badge variant="secondary">{snap.terminalType}</Badge>
-		{/if}
-		<div class="ml-auto flex items-center gap-1">
-			<Button
-				href={snap.mapsUrl}
-				target="_blank"
-				rel="noopener noreferrer"
-				variant="ghost"
-				size="sm"
-				class="gap-1"
-				aria-label="Open in Google Maps"
-			>
-				<ArrowSquareOut />
-				Maps
-			</Button>
-			<Button
-				href={snap.imageUrl}
-				download
-				variant="ghost"
-				size="sm"
-				class="gap-1"
-				aria-label="Download snapshot"
-			>
-				<DownloadSimple />
-				Save
-			</Button>
-		</div>
-	</Card.Footer>
-</Card.Root>
+	</div>
+</article>

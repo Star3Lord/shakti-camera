@@ -56,6 +56,15 @@
 
 	const current = $derived(tryParse(value));
 
+	function formatTime12h(d: Date): string {
+		const h24 = d.getHours();
+		const m = d.getMinutes();
+		const s = d.getSeconds();
+		const ampm = h24 >= 12 ? "PM" : "AM";
+		const h12 = h24 % 12 || 12;
+		return `${h12}:${pad(m)}:${pad(s)} ${ampm}`;
+	}
+
 	const triggerLabel = $derived.by(() => {
 		if (!current) return label;
 		if (!mounted) {
@@ -75,14 +84,7 @@
 			day: "numeric",
 			year: "numeric",
 		});
-		const timePart = d
-			.toLocaleTimeString(undefined, {
-				hour: "numeric",
-				minute: "2-digit",
-				hour12: true,
-			})
-			.toLowerCase();
-		return `${datePart} ${timePart}`;
+		return `${datePart} ${formatTime12h(d)}`;
 	});
 
 	const timeString = $derived(
@@ -143,7 +145,7 @@
 	</Popover.Trigger>
 	<Popover.Content class="w-auto gap-0 p-0" align="start">
 		<Calendar type="single" value={current} onValueChange={handleDateChange} />
-		<div class="border-t px-6 py-3">
+		<div class="border-t p-3">
 			<label
 				for={timeInputId}
 				class="text-muted-foreground mb-2 block text-xs font-medium uppercase tracking-wide"
