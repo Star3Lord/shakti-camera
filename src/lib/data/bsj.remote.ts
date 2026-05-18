@@ -4,6 +4,7 @@ import { BSJ_BASE_URL } from '$env/static/private';
 import {
 	parseBSJTime,
 	imageUrl,
+	isoToBsjWallClock,
 	yesterdayRange,
 	type BSJAccount,
 	type BSJDevice,
@@ -96,7 +97,9 @@ export const list_all_devices = query(async (): Promise<BSJDevice[]> => {
 export const get_timeline = query(
 	v.object({
 		device_id: v.string(),
+		/** UTC ISO 8601 timestamp; converted to BSJ wall-clock at the API boundary. */
 		start_time: v.optional(v.string()),
+		/** UTC ISO 8601 timestamp; converted to BSJ wall-clock at the API boundary. */
 		end_time: v.optional(v.string()),
 		multi_type: v.optional(v.pipe(v.number(), v.minValue(0), v.maxValue(1)), 0),
 	}),
@@ -106,8 +109,14 @@ export const get_timeline = query(
 		const endTime = args.end_time ?? end;
 		const multiType = args.multi_type ?? 0;
 
+		// BSJ's `getMultiMedias` expects CST wall-clock strings; do the
+		// conversion right at the boundary so the rest of the pipeline can
+		// keep treating filter times as canonical UTC ISO.
+		const bsjStart = isoToBsjWallClock(startTime);
+		const bsjEnd = isoToBsjWallClock(endTime);
+
 		const device = await findDevice(args.device_id);
-		const rawSnapshots = await fetchSnapshots(device.vehicleId, startTime, endTime, multiType);
+		const rawSnapshots = await fetchSnapshots(device.vehicleId, bsjStart, bsjEnd, multiType);
 
 		const coords = rawSnapshots
 			.filter((s) => s.lat !== 0 && s.lon !== 0)

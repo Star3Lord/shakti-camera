@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import {
     CircleNotch,
     FilePdf,
@@ -8,6 +9,7 @@
     WarningCircle,
   } from 'phosphor-svelte';
   import { Button } from '$lib/components/ui/button';
+  import { DateTimePicker } from '$lib/components/ui/date-time-picker';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -17,7 +19,9 @@
 
   interface Props {
     deviceId: string;
+    /** UTC ISO 8601 timestamp pulled from the page's filter state. */
     startTime: string;
+    /** UTC ISO 8601 timestamp pulled from the page's filter state. */
     endTime: string;
     multiType: number;
     open?: boolean;
@@ -86,32 +90,14 @@
     | 'device_id'
     | 'snapshot_type';
 
-  /** Locale-format an ISO/BSJ timestamp for the preview line; falls back to
-   *  the raw string if parsing fails. The preview is purely informational —
-   *  the PDF itself re-formats using the user's IANA timezone. */
-  function formatPreview(iso: string): string {
-    const normalised = iso.includes('T') ? iso : iso.replace(' ', 'T');
-    const d = new Date(normalised);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  }
-
-  const snapshotDetails = $derived<
-    ReadonlyArray<{ key: SnapshotDetailKey; label: string; preview: string }>
-  >([
-    {
-      key: 'start_date',
-      label: 'Start Date',
-      preview: formatPreview(startTime),
-    },
-    { key: 'end_date', label: 'End Date', preview: formatPreview(endTime) },
+  /** Read-only Snapshot details rows (device ID + snapshot type). Start/end
+   *  dates are rendered separately because they have their own pickers and
+   *  shouldn't be threaded through a generic preview-row loop. */
+  const otherSnapshotDetails: ReadonlyArray<{
+    key: Extract<SnapshotDetailKey, 'device_id' | 'snapshot_type'>;
+    label: string;
+    preview: string;
+  }> = $derived([
     { key: 'device_id', label: 'Device ID', preview: deviceId },
     {
       key: 'snapshot_type',
@@ -149,13 +135,35 @@
   let titleValue = $state(DEFAULT_TITLE);
   let subtitleEnabled = $state(true);
 
-  // Snapshot details — values come from page state, only toggleable
+  // Snapshot details — start/end dates carry their own editable pickers
+  // (see `dialogStart` / `dialogEnd` below); device/type are toggle-only.
   let snapshotDetailEnabled = $state<Record<SnapshotDetailKey, boolean>>({
     start_date: true,
     end_date: true,
     device_id: true,
     snapshot_type: true,
   });
+
+  // Dialog-local override of the start/end range so the user can adjust
+  // the PDF's date span without touching the on-screen timeline filter.
+  // `undefined` means "no override yet — use the live page prop", which
+  // is the state every time the dialog re-opens (the `$effect` below
+  // clears overrides on each open so edits never leak between sessions).
+  let dialogStartOverride = $state<string | undefined>(undefined);
+  let dialogEndOverride = $state<string | undefined>(undefined);
+
+  $effect(() => {
+    if (!open) return;
+    // `untrack` here keeps the effect tied to `open` only — clearing the
+    // overrides shouldn't itself re-trigger the effect.
+    untrack(() => {
+      dialogStartOverride = undefined;
+      dialogEndOverride = undefined;
+    });
+  });
+
+  const dialogStart = $derived(dialogStartOverride ?? startTime);
+  const dialogEnd = $derived(dialogEndOverride ?? endTime);
 
   // Footer — brand line text + toggle, page numbers toggle-only
   let footerTextEnabled = $state(true);
@@ -187,7 +195,13 @@
 
   function deriveFilename(): string {
     const safeDevice = deviceId.replace(/[^A-Za-z0-9_-]/g, '') || 'device';
-    const dateStr = startTime.slice(0, 10);
+    // Use the dialog's chosen start so the filename reflects the
+    // user-selected range rather than the page filter. Local-date so it
+    // matches what the user picked rather than a UTC offset of it.
+    const d = new Date(dialogStart);
+    const dateStr = isNaN(d.getTime())
+      ? dialogStart.slice(0, 10)
+      : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     return `timeline-${safeDevice}-${dateStr}.pdf`;
   }
 
@@ -248,8 +262,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           device_id: deviceId,
-          start_time: startTime,
-          end_time: endTime,
+          // Use the dialog's own start/end so the generated PDF reflects
+          // the user's per-PDF range override, not the on-screen filter.
+          start_time: dialogStart,
+          end_time: dialogEnd,
           multi_type: multiType,
           trip_id: pickTripValue('trip_id'),
           vehicle_number: pickTripValue('vehicle_number'),
@@ -472,7 +488,55 @@
           {@render sectionHeader('Snapshot details')}
 
           <div class="grid gap-3 sm:grid-cols-2">
-            {#each snapshotDetails as detail (detail.key)}
+            <div class="space-y-1.5 sm:col-span-2">
+              <div class="flex items-center justify-between gap-2">
+                <Label
+                  class={snapshotDetailEnabled.start_date
+                    ? ''
+                    : 'text-muted-foreground'}
+                >
+                  Start Date
+                </Label>
+                <Switch.Root
+                  bind:checked={snapshotDetailEnabled.start_date}
+                  disabled={isSubmitting}
+                  aria-label="Include Start Date in PDF"
+                />
+              </div>
+              {#if snapshotDetailEnabled.start_date}
+                <DateTimePicker
+                  label="Start"
+                  value={dialogStart}
+                  onChange={(v) => (dialogStartOverride = v)}
+                />
+              {/if}
+            </div>
+
+            <div class="space-y-1.5 sm:col-span-2">
+              <div class="flex items-center justify-between gap-2">
+                <Label
+                  class={snapshotDetailEnabled.end_date
+                    ? ''
+                    : 'text-muted-foreground'}
+                >
+                  End Date
+                </Label>
+                <Switch.Root
+                  bind:checked={snapshotDetailEnabled.end_date}
+                  disabled={isSubmitting}
+                  aria-label="Include End Date in PDF"
+                />
+              </div>
+              {#if snapshotDetailEnabled.end_date}
+                <DateTimePicker
+                  label="End"
+                  value={dialogEnd}
+                  onChange={(v) => (dialogEndOverride = v)}
+                />
+              {/if}
+            </div>
+
+            {#each otherSnapshotDetails as detail (detail.key)}
               <div class="space-y-1">
                 <div class="flex items-center justify-between gap-2">
                   <Label

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import {
 		ArrowLeft,
 		Calendar,
@@ -7,6 +8,7 @@
 		Printer,
 		VideoCamera,
 	} from 'phosphor-svelte';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -14,7 +16,9 @@
 
 	interface Props {
 		deviceName: string;
+		/** Canonical UTC ISO 8601 timestamp; rendered as a local-time date post-mount. */
 		startTime: string;
+		/** Canonical UTC ISO 8601 timestamp; rendered as a local-time date post-mount. */
 		endTime: string;
 		total: number;
 		multiType: number;
@@ -34,7 +38,32 @@
 		onPrint,
 	}: Props = $props();
 
-	const dateRange = $derived(`${startTime.slice(0, 10)} → ${endTime.slice(0, 10)}`);
+	let mounted = $state(false);
+	onMount(() => {
+		mounted = true;
+	});
+
+	/**
+	 * Format a UTC ISO string as a `YYYY-MM-DD` date. Pre-mount we use the
+	 * raw UTC slice so SSR and the initial client render produce the same
+	 * markup; post-mount we switch to the user's local date so the badge
+	 * matches what the picker shows (a user in IST who picked May 16
+	 * shouldn't see May 15 in the badge just because the UTC instant
+	 * straddles midnight).
+	 */
+	function formatYmd(iso: string, isMounted: boolean): string {
+		if (!isMounted) return iso.slice(0, 10);
+		const d = new Date(iso);
+		if (isNaN(d.getTime())) return iso.slice(0, 10);
+		const y = d.getFullYear();
+		const m = String(d.getMonth() + 1).padStart(2, '0');
+		const day = String(d.getDate()).padStart(2, '0');
+		return `${y}-${m}-${day}`;
+	}
+
+	const dateRange = $derived(
+		`${formatYmd(startTime, mounted)} → ${formatYmd(endTime, mounted)}`,
+	);
 	const typeLabel = $derived(multiType === 0 ? 'Pictures' : 'Videos');
 	const userName = $derived(page.data.userName as string | null);
 </script>
@@ -57,7 +86,7 @@
 				</Button>
 				<CaretRight class="text-muted-foreground/50 size-3.5" />
 				<a
-					href="/timeline"
+					href={resolve('/timeline')}
 					class="hover:text-foreground transition-colors"
 				>
 					Timeline

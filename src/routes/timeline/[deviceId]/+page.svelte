@@ -11,12 +11,22 @@
 		TimelineSkeleton,
 	} from '$lib/components/timeline';
 	import { get_timeline } from '$lib/data/bsj.remote';
-	import { yesterdayRange } from '$lib/bsj';
+	import { isValidIsoTimestamp, yesterdayRange } from '$lib/bsj';
 
 	const defaults = yesterdayRange();
 	const deviceId = $derived(page.params.deviceId ?? '');
-	const startTime = $derived(page.url.searchParams.get('start') ?? defaults.start);
-	const endTime = $derived(page.url.searchParams.get('end') ?? defaults.end);
+	// `start` and `end` are UTC ISO strings. Legacy URLs from before the
+	// timezone fix carried BSJ wall-clock values (`?start=2026-05-16+00:00:00`)
+	// which `isValidIsoTimestamp` rejects so we fall back to defaults rather
+	// than silently interpreting the wrong instant.
+	const startTime = $derived.by(() => {
+		const raw = page.url.searchParams.get('start');
+		return isValidIsoTimestamp(raw) ? raw : defaults.start;
+	});
+	const endTime = $derived.by(() => {
+		const raw = page.url.searchParams.get('end');
+		return isValidIsoTimestamp(raw) ? raw : defaults.end;
+	});
 	const multiType = $derived(Number(page.url.searchParams.get('type') ?? '0'));
 
 	let mounted = $state(false);

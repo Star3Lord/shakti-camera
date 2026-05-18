@@ -2,7 +2,7 @@ import * as v from 'valibot';
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { BSJ_BASE_URL } from '$env/static/private';
-import { imageUrl, parseBSJTime } from '$lib/bsj';
+import { imageUrl, isoToBsjWallClock, parseBSJTime } from '$lib/bsj';
 import { bsjFetchAsset, fetchSnapshots, findDevice } from '$lib/server/bsj';
 import {
   generateTimelinePdf,
@@ -19,7 +19,9 @@ const OptionalField = v.optional(v.nullable(v.string()));
 
 const bodySchema = v.object({
   device_id: v.pipe(v.string(), v.minLength(1, 'device_id is required')),
+  /** UTC ISO 8601 timestamp; converted to BSJ wall-clock before fetching snapshots. */
   start_time: v.pipe(v.string(), v.minLength(1, 'start_time is required')),
+  /** UTC ISO 8601 timestamp; converted to BSJ wall-clock before fetching snapshots. */
   end_time: v.pipe(v.string(), v.minLength(1, 'end_time is required')),
   multi_type: v.optional(v.pipe(v.number(), v.minValue(0), v.maxValue(1)), 0),
   trip_id: OptionalField,
@@ -116,10 +118,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const device = await findDevice(body.device_id);
+
+  // BSJ's `getMultiMedias` expects CST wall-clock strings; convert the
+  // canonical UTC ISO inputs right at the boundary so the rest of the
+  // pipeline (and the PDF cover) keeps the absolute-instant semantics.
+  let bsjStart: string;
+  let bsjEnd: string;
+  try {
+    bsjStart = isoToBsjWallClock(body.start_time);
+    bsjEnd = isoToBsjWallClock(body.end_time);
+  } catch {
+    throw error(400, 'start_time and end_time must be ISO 8601 timestamps.');
+  }
+
   const rawSnapshots = await fetchSnapshots(
     device.vehicleId,
-    body.start_time,
-    body.end_time,
+    bsjStart,
+    bsjEnd,
     body.multi_type
   );
 
