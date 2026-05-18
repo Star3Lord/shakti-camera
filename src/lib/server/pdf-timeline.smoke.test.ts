@@ -15,80 +15,179 @@ import { generateTimelinePdf, type PdfSnapshot } from './pdf-timeline';
 // but if a real JPEG is on disk at `/tmp/test-snap.jpg` we use that instead
 // to visually verify the photo grid in the generated PDF.
 const STUB_PNG = Buffer.from(
-	'iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFUlEQVQIW2P8z8DwnwEJMA4eAQDgWQYBOIxhCgAAAABJRU5ErkJggg==',
-	'base64',
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFUlEQVQIW2P8z8DwnwEJMA4eAQDgWQYBOIxhCgAAAABJRU5ErkJggg==',
+  'base64'
 );
 
 const REAL_JPEG = existsSync('/tmp/test-snap.jpg')
-	? readFileSync('/tmp/test-snap.jpg')
-	: null;
+  ? readFileSync('/tmp/test-snap.jpg')
+  : null;
 const STUB_IMAGE = REAL_JPEG ?? STUB_PNG;
 
 function makeSnapshots(n: number, startIso: string): PdfSnapshot[] {
-	const start = new Date(startIso).getTime();
-	const snaps: PdfSnapshot[] = [];
-	for (let i = 0; i < n; i++) {
-		const t = new Date(start + i * 15 * 60 * 1000).toISOString();
-		snaps.push({
-			image: i % 7 === 0 ? null : STUB_IMAGE, // exercise "image unavailable" cells too
-			timeIso: t,
-		});
-	}
-	return snaps;
+  const start = new Date(startIso).getTime();
+  const snaps: PdfSnapshot[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = new Date(start + i * 15 * 60 * 1000).toISOString();
+    snaps.push({
+      image: i % 7 === 0 ? null : STUB_IMAGE, // exercise "image unavailable" cells too
+      timeIso: t,
+    });
+  }
+  return snaps;
 }
 
 describe('generateTimelinePdf', () => {
-	it('produces a non-trivial PDF with the standard %PDF header', async () => {
-		const snapshots = [
-			...makeSnapshots(11, '2026-05-02T05:30:00Z'),
-			...makeSnapshots(13, '2026-05-03T06:00:00Z'),
-		];
+  it('produces a non-trivial PDF with the standard %PDF header', async () => {
+    const snapshots = [
+      ...makeSnapshots(11, '2026-05-02T05:30:00Z'),
+      ...makeSnapshots(13, '2026-05-03T06:00:00Z'),
+    ];
 
-		const pdf = await generateTimelinePdf({
-			meta: {
-				tripId: '14887',
-				vehicleNumber: 'CG22X6769',
-				from: 'Amgaon',
-				to: 'Lala Pipes',
-				driverName: 'Vikash',
-				driverContact: '6264981595',
-				consignor: 'Hanukripa',
-				deviceId: '025491830583',
-				startDate: '2026-05-02 05:30:00',
-				endDate: '2026-05-03 10:30:00',
-				multiType: 0,
-			},
-			snapshots,
-			generatedAt: new Date('2026-05-17T11:00:00Z'),
-		});
+    const pdf = await generateTimelinePdf({
+      meta: {
+        tripId: '14887',
+        vehicleNumber: 'CG22X6769',
+        from: 'Amgaon',
+        to: 'Lala Pipes',
+        driverName: 'Vikash',
+        driverContact: '6264981595',
+        consignor: 'Hanukripa',
+        deviceId: '025491830583',
+        startDate: '2026-05-02 05:30:00',
+        endDate: '2026-05-03 10:30:00',
+        multiType: 0,
+      },
+      snapshots,
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
 
-		writeFileSync('/tmp/pdf-timeline-smoke.pdf', pdf);
+    writeFileSync('/tmp/pdf-timeline-smoke.pdf', pdf);
 
-		const header = pdf.subarray(0, 4).toString('utf8');
-		expect(header).toBe('%PDF');
-		expect(pdf.byteLength).toBeGreaterThan(2000);
-	});
+    const header = pdf.subarray(0, 4).toString('utf8');
+    expect(header).toBe('%PDF');
+    expect(pdf.byteLength).toBeGreaterThan(2000);
+  });
 
-	it('handles zero snapshots gracefully (just the cover header)', async () => {
-		const pdf = await generateTimelinePdf({
-			meta: {
-				tripId: '',
-				vehicleNumber: '',
-				from: '',
-				to: '',
-				driverName: '',
-				driverContact: '',
-				consignor: '',
-				deviceId: 'TESTDEV',
-				startDate: '2026-05-02 00:00:00',
-				endDate: '2026-05-02 23:59:59',
-				multiType: 1,
-			},
-			snapshots: [],
-			generatedAt: new Date('2026-05-17T11:00:00Z'),
-		});
+  it('handles zero snapshots gracefully (just the cover header)', async () => {
+    const pdf = await generateTimelinePdf({
+      meta: {
+        tripId: '',
+        vehicleNumber: '',
+        from: '',
+        to: '',
+        driverName: '',
+        driverContact: '',
+        consignor: '',
+        deviceId: 'TESTDEV',
+        startDate: '2026-05-02 00:00:00',
+        endDate: '2026-05-02 23:59:59',
+        multiType: 1,
+      },
+      snapshots: [],
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
 
-		expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
-		expect(pdf.byteLength).toBeGreaterThan(800);
-	});
+    expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
+    expect(pdf.byteLength).toBeGreaterThan(800);
+  });
+
+  it('honours chrome toggles: custom title, custom footer, hidden subtitle', async () => {
+    const snapshots = makeSnapshots(6, '2026-05-02T05:30:00Z');
+    const pdf = await generateTimelinePdf({
+      meta: {
+        vehicleNumber: 'CG22X6769',
+        deviceId: 'TESTDEV',
+        startDate: '2026-05-02 00:00:00',
+        endDate: '2026-05-02 23:59:59',
+        multiType: 0,
+      },
+      chrome: {
+        title: 'Custom Investigation Report',
+        showSubtitle: false,
+        footerText: 'Confidential · Internal Use Only',
+        showPageNumbers: true,
+      },
+      snapshots,
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
+
+    writeFileSync('/tmp/pdf-timeline-chrome-custom.pdf', pdf);
+    expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
+    expect(pdf.byteLength).toBeGreaterThan(1500);
+  });
+
+  it('omits snapshot-detail rows individually when toggled off', async () => {
+    const snapshots = makeSnapshots(4, '2026-05-02T05:30:00Z');
+    const pdf = await generateTimelinePdf({
+      meta: {
+        vehicleNumber: 'CG22X6769',
+        deviceId: 'TESTDEV',
+        startDate: '2026-05-02 00:00:00',
+        endDate: '2026-05-02 23:59:59',
+        multiType: 0,
+      },
+      chrome: {
+        showStartDate: false,
+        showEndDate: false,
+        showDeviceId: false,
+        showSnapshotType: false,
+      },
+      snapshots,
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
+
+    writeFileSync('/tmp/pdf-timeline-chrome-rows-off.pdf', pdf);
+    expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
+  });
+
+  it('produces a valid PDF when every chrome block is disabled', async () => {
+    const snapshots = makeSnapshots(4, '2026-05-02T05:30:00Z');
+    const pdf = await generateTimelinePdf({
+      meta: {
+        deviceId: 'TESTDEV',
+        startDate: '2026-05-02 00:00:00',
+        endDate: '2026-05-02 23:59:59',
+        multiType: 0,
+      },
+      chrome: {
+        title: null,
+        showSubtitle: false,
+        showStartDate: false,
+        showEndDate: false,
+        showDeviceId: false,
+        showSnapshotType: false,
+        footerText: null,
+        showPageNumbers: false,
+      },
+      snapshots,
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
+
+    writeFileSync('/tmp/pdf-timeline-chrome-all-off.pdf', pdf);
+    expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
+    expect(pdf.byteLength).toBeGreaterThan(800);
+  });
+
+  it('renders the body grid at 2 images per row when requested', async () => {
+    const snapshots = makeSnapshots(8, '2026-05-02T05:30:00Z');
+    const pdf = await generateTimelinePdf({
+      meta: {
+        vehicleNumber: 'CG22X6769',
+        deviceId: 'TESTDEV',
+        startDate: '2026-05-02 00:00:00',
+        endDate: '2026-05-02 23:59:59',
+        multiType: 0,
+      },
+      chrome: {
+        imagesPerRow: 2,
+      },
+      snapshots,
+      generatedAt: new Date('2026-05-17T11:00:00Z'),
+    });
+
+    writeFileSync('/tmp/pdf-timeline-2-per-row.pdf', pdf);
+    expect(pdf.subarray(0, 4).toString('utf8')).toBe('%PDF');
+    expect(pdf.byteLength).toBeGreaterThan(1500);
+  });
 });
